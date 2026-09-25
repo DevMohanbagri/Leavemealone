@@ -32,6 +32,20 @@ LeaveMeAlone's application code, letter text, scan logic, and interface are
 original. Opt-out pages change. Treat every link as a lead to the broker's own
 privacy request, not a guarantee.
 
+Places
+======
+
+Country, state, and city suggestions in `data/places.json` and `data/cities.json`
+are derived from the Countries States Cities Database:
+
+https://github.com/dr5hn/countries-states-cities-database
+
+That database is under the Open Database License (ODbL):
+https://opendatacommons.org/licenses/odbl/1-0/
+
+A typed place is kept even when it is not in the list. The list is a
+suggestion, not a limit.
+
 Fonts
 =====
 

@@ -7,7 +7,8 @@ import re
 from html.parser import HTMLParser
 from urllib.parse import quote, urlparse, parse_qs, unquote
 
-from app.letters import US_STATES, current_address, normalize_state
+from app.letters import US_STATES, current_address, normalize_state, state_name
+from app.places import normalize_country
 
 UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -60,12 +61,23 @@ def slug(value: str) -> str:
     return text.strip("-")
 
 
+def region_tokens(profile: dict) -> tuple[str, str]:
+    address = current_address(profile)
+    raw = address.get("state") or profile.get("residence_state") or ""
+    country = normalize_country(profile.get("country") or "")
+    if country == "US" or (not country and normalize_state(raw) in US_STATES):
+        code = normalize_state(raw)
+        return code, state_name(code)
+    name = state_name(raw)
+    return name, name
+
+
 def fill_search_url(template: str, profile: dict) -> str | None:
     if not template:
         return None
     address = current_address(profile)
-    state = normalize_state(address.get("state") or profile.get("residence_state"))
-    state_token = US_STATES.get(state, state) if "spokeo.com" in template else state
+    code, full = region_tokens(profile)
+    state_token = full if "spokeo.com" in template else code
     values = {
         "first_name": profile.get("first_name") or "",
         "last_name": profile.get("last_name") or "",
@@ -317,7 +329,7 @@ def queries_for(profile: dict) -> list[str]:
     last = profile.get("last_name") or ""
     address = current_address(profile)
     city = address.get("city") or ""
-    state = normalize_state(address.get("state") or profile.get("residence_state"))
+    state = region_tokens(profile)[1]
     queries = [f"\"{first} {last}\""]
     if city:
         queries.append(f"\"{first} {last}\" \"{city}\"")

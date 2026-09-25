@@ -467,10 +467,54 @@ function renderWelcome() {
     </section>`;
 }
 
-function stateOptions(selected) {
+function placeCountries() {
+  return (state.places && state.places.countries) || [];
+}
+
+function findCountry(value) {
+  const raw = (value || "").trim().toLowerCase();
+  if (!raw) return null;
+  return placeCountries().find((c) => c.code.toLowerCase() === raw || c.name.toLowerCase() === raw) || null;
+}
+
+function countryName(value) {
+  const found = findCountry(value);
+  return found ? found.name : (value || "");
+}
+
+function regionName(countryValue, region) {
+  if (!region) return "";
   const states = (state.meta && state.meta.states) || {};
-  const options = Object.entries(states).map(([code, name]) => `<option value="${code}" ${code === selected ? "selected" : ""}>${esc(name)}</option>`);
-  return `<option value="">—</option>${options.join("")}`;
+  if (states[region]) return states[region];
+  const country = findCountry(countryValue);
+  const hit = country && (country.regions || []).find((name) => name.toLowerCase() === region.toLowerCase());
+  return hit || region;
+}
+
+function livingPlace(p) {
+  if (!p) return "";
+  const address = (p.addresses || [])[0] || {};
+  return [address.city, regionName(p.country, address.state || p.residence_state), countryName(p.country)].filter(Boolean).join(", ");
+}
+
+function comboField(kind, name, label, value, placeholder) {
+  return `<label class="combo">
+    <span>${label}</span>
+    <input name="${name}" value="${esc(value || "")}" placeholder="${esc(placeholder)}" autocomplete="off" spellcheck="false" data-place="${kind}" data-picked="${esc(kind === "country" ? value || "" : "")}" role="combobox" aria-autocomplete="list" aria-expanded="false">
+    <div class="suggest" hidden></div>
+  </label>`;
+}
+
+function placeFields(d) {
+  return `<div class="place wide">
+    <p class="tiny muted">Search every country and state, or type a place that is not listed. Any city is saved.</p>
+    <div class="place-grid">
+      ${comboField("country", "country_name", "Country", countryName(d.country), "India, Japan, United States")}
+      ${comboField("region", "state", "State or region", regionName(d.country, d.state || d.residence_state), "Delhi, Tokyo, Texas")}
+      ${comboField("city", "city", "City", d.city, "Any city or town")}
+      <label><span>Postal code</span><input name="zip" value="${esc(d.zip || "")}" placeholder="Optional" autocomplete="postal-code"></label>
+    </div>
+  </div>`;
 }
 
 function dossierForm(draft, editing) {
@@ -487,16 +531,8 @@ function dossierForm(draft, editing) {
       <label><span>Email</span><input name="email" type="email" value="${esc(d.email)}" placeholder="you@domain.com"></label>
       <label><span>Second email</span><input name="email2" type="email" value="${esc(d.email2)}"></label>
       <label><span>Phone</span><input name="phone" value="${esc(d.phone)}" placeholder="Optional"></label>
-      <label><span>City</span><input name="city" value="${esc(d.city)}"></label>
-      <label><span>State</span><select name="state">${stateOptions(d.state)}</select></label>
-      <label><span>ZIP</span><input name="zip" value="${esc(d.zip)}"></label>
+      ${placeFields(d)}
       <label class="wide"><span>Street</span><input name="street" value="${esc(d.street)}" placeholder="Optional. Needed for some broker forms."></label>
-      <label><span>Residence, for the letter</span><select name="residence_state">${stateOptions(d.residence_state || d.state)}</select></label>
-      <label><span>Country</span>
-        <select name="country">
-          ${["US", "CA", "GB", "EU", "OTHER"].map((c) => `<option ${d.country === c ? "selected" : ""}>${c}</option>`).join("")}
-        </select>
-      </label>
       <label><span>Date of birth</span><input name="dob" value="${esc(d.dob)}" placeholder="YYYY-MM-DD, optional"></label>
       <label class="check wide"><input type="checkbox" name="include_dob" ${d.include_dob ? "checked" : ""}> Include date of birth in letters. Off by default. Some forms ask for it on their own page.</label>
       <label class="check wide"><input type="checkbox" name="scan_phone" ${d.scan_phone ? "checked" : ""}> Allow phone number in search links. Off by default. We still notice if a page we opened already shows it.</label>
@@ -519,7 +555,7 @@ function renderDesk() {
     ${banners()}
     <div class="top">
       <div>
-        <p class="kicker">Dossier · ${esc(p.residence_state || p.country || "local")} · ${desk.monitor.enabled ? `watching · every ${desk.monitor.interval_hours}h` : "watch off"}</p>
+        <p class="kicker">Dossier · ${esc(livingPlace(p) || "no place yet")} · ${desk.monitor.enabled ? `watching · every ${desk.monitor.interval_hours}h` : "watch off"}</p>
         <h1 class="pii">${esc(fullName(p))}</h1>
       </div>
       <div class="row noprint">
@@ -660,7 +696,7 @@ function feedHtml(ev) {
 function renderPull() {
   const desk = state.desk;
   const p = desk.profile;
-  const ca = p.residence_state === "CA";
+  const ca = p.residence_state === "CA" && (!p.country || p.country === "US" || p.country === "USA");
   const queued = (desk.removals || []).length;
   const modes = [
     ["desk", "Case desk"],
@@ -1076,8 +1112,8 @@ function formBody(form) {
       zip: data.zip || "",
       current: true,
     }],
-    residence_state: data.residence_state || data.state || "",
-    country: data.country || "US",
+    residence_state: data.state || "",
+    country: (data.country_name || "").trim(),
     dob: data.dob || "",
     include_dob: form.include_dob.checked,
     scan_phone: form.scan_phone.checked,
@@ -1175,6 +1211,29 @@ async function onClick(event) {
       await refresh();
       go("pull");
       toast(btn.dataset.scope === "visible" ? "Queued the visible listings and the upstream brokers." : "Queued the directory. Start at the top.");
+    } else if (act === "place-pick") {
+      event.preventDefault();
+      const combo = btn.closest(".combo");
+      const input = combo && combo.querySelector("input");
+      if (!input) return;
+      const next = btn.dataset.value || "";
+      if (input.dataset.place === "country" && input.dataset.picked && input.dataset.picked !== next) {
+        const region = document.querySelector("[data-place=region]");
+        const city = document.querySelector("[data-place=city]");
+        if (region) region.value = "";
+        if (city) city.value = "";
+      }
+      input.value = next;
+      if (input.dataset.place === "country") input.dataset.picked = next;
+      if (input.dataset.place === "region" && btn.dataset.country) {
+        const countryInput = document.querySelector("[data-place=country]");
+        if (countryInput && !findCountry(countryInput.value)) {
+          countryInput.value = btn.dataset.country;
+          countryInput.dataset.picked = btn.dataset.country;
+        }
+      }
+      closeSuggest(input);
+      input.focus();
     } else if (act === "open") {
       openUrl(btn.dataset.url);
     } else if (act === "copy-details") {
@@ -1354,7 +1413,100 @@ async function onSubmit(event) {
   }
 }
 
+function closeSuggest(input) {
+  const box = input && input.parentElement && input.parentElement.querySelector(".suggest");
+  if (!box) return;
+  box.hidden = true;
+  box.innerHTML = "";
+  input.setAttribute("aria-expanded", "false");
+}
+
+function closeAllSuggests() {
+  document.querySelectorAll("[data-place]").forEach(closeSuggest);
+}
+
+function renderSuggest(input, items) {
+  const box = input.parentElement.querySelector(".suggest");
+  const q = input.value.trim();
+  const rows = items.slice();
+  if (q && !rows.some((item) => item.value.toLowerCase() === q.toLowerCase())) {
+    rows.unshift({ value: q, hint: "Use this" });
+  }
+  if (!rows.length) {
+    closeSuggest(input);
+    return;
+  }
+  box.hidden = false;
+  input.setAttribute("aria-expanded", "true");
+  box.innerHTML = rows.map((item, index) => `<button type="button" class="suggest-opt${index === 0 ? " on" : ""}" data-act="place-pick" data-value="${esc(item.value)}" data-country="${esc(item.country || "")}">${esc(item.value)}${item.hint ? `<em>${esc(item.hint)}</em>` : ""}</button>`).join("");
+}
+
+function suggestCountries(input) {
+  const q = input.value.trim().toLowerCase();
+  if (!q) {
+    closeSuggest(input);
+    return;
+  }
+  const rows = placeCountries().filter((c) => c.name.toLowerCase().includes(q) || c.code.toLowerCase().startsWith(q)).slice(0, 8);
+  renderSuggest(input, rows.map((c) => ({ value: c.name, hint: c.code })));
+}
+
+function suggestRegions(input) {
+  const q = input.value.trim().toLowerCase();
+  const countryInput = document.querySelector("[data-place=country]");
+  const country = findCountry(countryInput && countryInput.value);
+  if (!country && !q) {
+    closeSuggest(input);
+    return;
+  }
+  let pool = [];
+  if (country) {
+    pool = (country.regions || []).map((name) => ({ value: name, hint: country.name }));
+  } else {
+    for (const row of placeCountries()) {
+      for (const name of row.regions || []) {
+        if (q && !name.toLowerCase().includes(q)) continue;
+        pool.push({ value: name, hint: row.name, country: row.name });
+        if (pool.length >= 8) break;
+      }
+      if (pool.length >= 8) break;
+    }
+  }
+  const matches = (q ? pool.filter((item) => item.value.toLowerCase().includes(q)) : pool).slice(0, 8);
+  renderSuggest(input, matches);
+}
+
+async function suggestCities(input) {
+  const q = input.value.trim();
+  const countryInput = document.querySelector("[data-place=country]");
+  const country = findCountry(countryInput && countryInput.value);
+  if (!q) {
+    closeSuggest(input);
+    return;
+  }
+  let cities = [];
+  if (country) {
+    const res = await api(`/api/places/cities?country=${encodeURIComponent(country.code)}&q=${encodeURIComponent(q)}`);
+    if (input.value.trim() !== q) return;
+    cities = (res.cities || []).map((name) => ({ value: name, hint: country.name }));
+  }
+  renderSuggest(input, cities);
+}
+
+function updatePlaceSuggest(input) {
+  if (input.dataset.place === "country") suggestCountries(input);
+  else if (input.dataset.place === "region") suggestRegions(input);
+  else if (input.dataset.place === "city") {
+    clearTimeout(updatePlaceSuggest.cityTimer);
+    updatePlaceSuggest.cityTimer = setTimeout(() => suggestCities(input).catch(() => closeSuggest(input)), 160);
+  }
+}
+
 function onInput(event) {
+  if (event.target.dataset && event.target.dataset.place) {
+    updatePlaceSuggest(event.target);
+    return;
+  }
   if (event.target.id === "broker-q") {
     state.brokerQuery = event.target.value;
     const main = document.querySelector(".main");
@@ -1369,7 +1521,47 @@ function onInput(event) {
   }
 }
 
+function moveSuggest(input, delta) {
+  const box = input.parentElement.querySelector(".suggest");
+  if (!box || box.hidden) return false;
+  const opts = [...box.querySelectorAll(".suggest-opt")];
+  if (!opts.length) return false;
+  let index = opts.findIndex((opt) => opt.classList.contains("on"));
+  index = Math.max(0, Math.min(opts.length - 1, index + delta));
+  opts.forEach((opt, i) => opt.classList.toggle("on", i === index));
+  opts[index].scrollIntoView({ block: "nearest" });
+  return true;
+}
+
 function onKey(event) {
+  if (event.target.dataset && event.target.dataset.place) {
+    const input = event.target;
+    const box = input.parentElement.querySelector(".suggest");
+    const open = box && !box.hidden;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      if (!open) updatePlaceSuggest(input);
+      else moveSuggest(input, 1);
+      return;
+    }
+    if (event.key === "ArrowUp" && open) {
+      event.preventDefault();
+      moveSuggest(input, -1);
+      return;
+    }
+    if (event.key === "Enter" && open) {
+      const chosen = box.querySelector(".suggest-opt.on");
+      if (chosen) {
+        event.preventDefault();
+        chosen.click();
+      }
+      return;
+    }
+    if (event.key === "Escape" && open) {
+      closeSuggest(input);
+      return;
+    }
+  }
   if (event.target.matches("input, textarea, select")) return;
   if (event.key === "?") {
     state.help = !state.help;
@@ -1421,6 +1613,11 @@ function route() {
 async function boot() {
   try {
     state.meta = await api("/api/meta");
+    try {
+      state.places = await api("/api/places");
+    } catch (err) {
+      state.places = { countries: [] };
+    }
     state.profiles = await api("/api/profiles");
     const saved = Number(localStorage.getItem("lma-profile"));
     if (saved && state.profiles.some((p) => p.id === saved)) await adopt(saved);
@@ -1428,6 +1625,12 @@ async function boot() {
     document.getElementById("app").addEventListener("click", onClick);
     document.getElementById("app").addEventListener("submit", onSubmit);
     document.getElementById("app").addEventListener("input", onInput);
+    document.getElementById("app").addEventListener("focusin", (event) => {
+      if (event.target.dataset && event.target.dataset.place && event.target.dataset.place !== "city") updatePlaceSuggest(event.target);
+    });
+    document.addEventListener("click", (event) => {
+      if (!event.target.closest(".combo")) closeAllSuggests();
+    });
     document.addEventListener("keydown", onKey);
     route();
   } catch (err) {

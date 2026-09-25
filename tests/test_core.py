@@ -5,6 +5,7 @@ from pathlib import Path
 from app.catalog import load_catalog
 from app.db import DB
 from app.letters import build_letter, full_name
+from app.places import clean_city, clean_region, normalize_country, search_cities
 from app.scanner import classify_page, fill_search_url
 from app.scoring import exposure_label, exposure_score, should_replace, transition
 
@@ -47,6 +48,27 @@ class CatalogTests(unittest.TestCase):
         cluster = catalog.cluster_by_id["peopleconnect"]
         self.assertIn("intelius", cluster["members"])
         self.assertIn("truthfinder", cluster["members"])
+
+
+class PlaceTests(unittest.TestCase):
+    def test_india_keeps_delhi_and_an_unlisted_city(self):
+        self.assertEqual(normalize_country("India"), "IN")
+        self.assertEqual(normalize_country("usa"), "US")
+        self.assertEqual(clean_region("delhi", "IN"), "Delhi")
+        self.assertEqual(clean_region("Texas", "US"), "TX")
+        self.assertEqual(clean_city("Gharroli", "IN"), "Gharroli")
+        self.assertEqual(clean_city("new delhi", "IN"), "New Delhi")
+        self.assertIn("Delhi", search_cities("IN", "del"))
+        self.assertNotIn("Delaware", search_cities("IN", "del"))
+
+    def test_india_letter_does_not_invent_a_us_state(self):
+        profile = {**PROFILE, "country": "IN", "residence_state": "Delhi", "addresses": [{"city": "Gharroli", "state": "Delhi", "zip": "110096", "current": True}]}
+        letter = build_letter(profile, {"name": "TruePeopleSearch", "domain": "truepeoplesearch.com"})
+        self.assertIn("Gharroli", letter["body"])
+        self.assertIn("Delhi", letter["body"])
+        self.assertIn("India", letter["body"])
+        self.assertNotIn("Delaware", letter["body"])
+        self.assertNotIn("1798.105", letter["body"])
 
 
 class LetterTests(unittest.TestCase):

@@ -28,10 +28,10 @@ from app.letters import (
     chunked,
     deadline_from,
     full_name,
-    normalize_state,
     response_days,
 )
 from app.packet import render_packet
+from app.places import clean_city, clean_region, countries as place_countries, normalize_country, search_cities
 from app.sample import install_sample
 from app.scanner import (
     UA,
@@ -131,15 +131,17 @@ def clean_profile(body: dict) -> dict:
         )
     aliases = [a for a in aliases if a["first"] or a["last"]]
     addresses = []
+    country = normalize_country(str(body.get("country") or ""))
     for raw in (body.get("addresses") or [])[:4]:
         if not isinstance(raw, dict):
             continue
+        region = clean_region(str(raw.get("state") or ""), country)
         addresses.append(
             {
                 "street": str(raw.get("street") or "").strip()[:120],
-                "city": str(raw.get("city") or "").strip()[:80],
-                "state": normalize_state(str(raw.get("state") or ""))[:2],
-                "zip": str(raw.get("zip") or "").strip()[:12],
+                "city": clean_city(str(raw.get("city") or ""), country),
+                "state": region,
+                "zip": str(raw.get("zip") or "").strip()[:16],
                 "current": bool(raw.get("current", True)),
             }
         )
@@ -148,8 +150,10 @@ def clean_profile(body: dict) -> dict:
     dob = str(body.get("dob") or "").strip()
     if dob and not re.match(r"^\d{4}-\d{2}-\d{2}$", dob):
         raise HTTPException(400, "Date of birth should be YYYY-MM-DD, or leave it blank.")
-    country = str(body.get("country") or "US").strip().upper()[:8] or "US"
-    residence = normalize_state(str(body.get("residence_state") or (addresses[0]["state"] if addresses else "")))
+    residence = clean_region(
+        str(body.get("residence_state") or (addresses[0]["state"] if addresses else "")),
+        country,
+    )
     return {
         "label": str(body.get("label") or f"{first} {last}").strip()[:80],
         "first_name": first,
@@ -589,6 +593,19 @@ def meta() -> dict:
         "source_url": catalog.source_url,
         "hibp": bool(db.setting("hibp_api_key")),
     }
+
+
+@app.get("/api/places")
+def list_places() -> dict:
+    return {"countries": place_countries()}
+
+
+@app.get("/api/places/cities")
+def list_cities(country: str = "", q: str = "") -> dict:
+    query = " ".join((q or "").split())
+    if len(query) > 80:
+        raise HTTPException(400, "That city search is too long.")
+    return {"cities": search_cities(country, query)}
 
 
 @app.get("/api/profiles")

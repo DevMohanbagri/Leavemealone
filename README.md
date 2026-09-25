@@ -120,7 +120,7 @@ Then open http://127.0.0.1:8790
 ### 4. Use it
 
 1. Click **Walk the sample** first. Avery Quinn is not a real person. Use that to learn the desk.
-2. When you are ready, click **Open a dossier** and enter your own name. Confirm it is your information, or that you are allowed to act for that person.
+2. When you are ready, click **Open a dossier** and enter your own name. Country, state, and city take any place: type to search, or type a city that is not listed. Confirm it is your information, or that you are allowed to act for this person.
 3. **Scan** looks for public listings. In some networks the sites refuse an automated look. The letters still work. Open the search link yourself and record what you see.
 4. **Pull** is the removal queue: official opt-out pages, a letter under your state privacy law, and email batches you send from your own mailbox. California residents should file [DROP](https://privacy.ca.gov/drop/) first.
 5. **Watch** rechecks while the app is running. Turn the computer off, and the watch pauses. Start the app again and it can check on the schedule you set.

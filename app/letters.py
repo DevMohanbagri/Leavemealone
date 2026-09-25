@@ -247,7 +247,7 @@ GENERIC = (
 
 
 def normalize_state(value: str | None) -> str:
-    raw = (value or "").strip()
+    raw = " ".join((value or "").split())
     if not raw:
         return ""
     upper = raw.upper()
@@ -256,12 +256,19 @@ def normalize_state(value: str | None) -> str:
     for code, name in US_STATES.items():
         if name.lower() == raw.lower():
             return code
-    return upper[:2]
+    return raw[:80]
 
 
 def state_name(code: str | None) -> str:
-    code = normalize_state(code)
-    return US_STATES.get(code, code or "")
+    raw = " ".join((code or "").split())
+    if not raw:
+        return ""
+    if raw.upper() in US_STATES:
+        return US_STATES[raw.upper()]
+    for name in US_STATES.values():
+        if name.lower() == raw.lower():
+            return name
+    return raw
 
 
 def full_name(profile: dict) -> str:
@@ -278,13 +285,17 @@ def current_address(profile: dict) -> dict:
 
 
 def applicable_laws(profile: dict) -> list[dict]:
+    from app.places import normalize_country
+
     laws = []
-    country = (profile.get("country") or "US").upper()
+    country = normalize_country(profile.get("country") or "")
     state = normalize_state(profile.get("residence_state") or current_address(profile).get("state"))
-    if country in {"US", "USA", ""} and state in LAWS:
+    if not country and state in US_STATES:
+        country = "US"
+    if country == "US" and state in LAWS:
         laws.append({"id": state, **LAWS[state]})
-    if country in EU_COUNTRIES or country in {"GB", "UK"}:
-        title = "UK GDPR and the Data Protection Act 2018" if country in {"GB", "UK"} else "GDPR"
+    if country in EU_COUNTRIES or country in {"GB", "UK", "EU"}:
+        title = "UK GDPR and the Data Protection Act 2018" if country == "GB" else "GDPR"
         laws.append(
             {
                 "id": "GDPR",
@@ -297,7 +308,7 @@ def applicable_laws(profile: dict) -> list[dict]:
                 ),
             }
         )
-    if country in {"CA", "CAN", "CANADA"}:
+    if country == "CA":
         laws.append(
             {
                 "id": "PIPEDA",
@@ -348,12 +359,17 @@ def _identifiers(profile: dict) -> list[str]:
     place = ", ".join(p for p in (street, city, state, zip_code) if p)
     if place:
         lines.append(f"Address: {place}")
+    from app.places import country_name, normalize_country
+
     residence = state_name(profile.get("residence_state"))
-    if residence:
-        lines.append(f"State of residence: {residence}")
-    country = (profile.get("country") or "").upper()
-    if country and country not in {"US", "USA"}:
-        lines.append(f"Country: {country}")
+    country = normalize_country(profile.get("country") or "")
+    if country == "US" or (not country and normalize_state(profile.get("residence_state")) in US_STATES):
+        if residence:
+            lines.append(f"State of residence: {residence}")
+    else:
+        place = ", ".join(part for part in (residence, country_name(country)) if part)
+        if place:
+            lines.append(f"Place of residence: {place}")
     if profile.get("include_dob") and profile.get("dob"):
         lines.append(f"Date of birth: {profile['dob']}")
     return lines
