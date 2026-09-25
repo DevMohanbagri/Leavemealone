@@ -34,7 +34,12 @@ OVERRIDES = {
         "why": "Public people search. Opt out from their removal page, then watch for a relist.",
     },
     "truepeoplesearch": {
-        "why": "Fast to remove and fast to republish. Confirm the email, then recheck within two weeks.",
+        "why": "The removal page is often blocked by their own security service. Email support@truepeoplesearch.com, call 888-838-4803, or mail the letter. Do not try to get around the block.",
+        "email": "support@truepeoplesearch.com",
+        "phone": "888-838-4803",
+        "postal": "TruePeopleSearch.com, PO Box 7775 PMB 29296, San Francisco, CA 94120-7775",
+        "notes": "Contacts taken from the TruePeopleSearch privacy notice (updated 2026-03-06) and the about page. contact@ is not the published address. The /removal form sits behind their security wall.",
+        "last_verified": "2026-09-25",
     },
     "clustrmaps": {
         "why": "Pins your name to an address from property and other public records. The broker copy can be suppressed; the county record cannot.",
@@ -78,6 +83,61 @@ SUMMARY_FIELDS = (
 )
 
 
+def _sync_contacts(broker: dict) -> None:
+    """Keep method steps aligned when an override corrects a published address."""
+    methods = [dict(method) for method in broker.get("methods") or []]
+    email = broker.get("email")
+    phone = broker.get("phone")
+    postal = broker.get("postal")
+    if email:
+        email_method = next((method for method in methods if method.get("type") == "email"), None)
+        steps = [
+            "Copy the deletion letter. LeaveMeAlone does not send it.",
+            f"Email it from your own mailbox to {email}.",
+            "If the page says you have been blocked, stop. Do not try to get around that wall. This email is the request.",
+            "Keep the sent mail. The deadline starts the day you send it.",
+        ]
+        if email_method:
+            email_method["email"] = email
+            email_method["steps"] = steps
+        else:
+            methods.append({"type": "email", "url": None, "email": email, "phone": None, "postal": None, "requires_id": False, "requires_listing_url": False, "required_fields": ["full_name", "email"], "steps": steps, "notes": None})
+    if phone and not any(method.get("type") == "phone" for method in methods):
+        methods.append({
+            "type": "phone",
+            "url": None,
+            "email": None,
+            "phone": phone,
+            "postal": None,
+            "requires_id": False,
+            "requires_listing_url": False,
+            "required_fields": ["full_name"],
+            "steps": [
+                f"Call {phone}.",
+                "Ask them to delete the listing and stop selling it. Write down the name of the person you spoke with.",
+            ],
+            "notes": None,
+        })
+    if postal and not any(method.get("type") == "postal" for method in methods):
+        methods.append({
+            "type": "postal",
+            "url": None,
+            "email": None,
+            "phone": None,
+            "postal": postal,
+            "requires_id": False,
+            "requires_listing_url": False,
+            "required_fields": ["full_name"],
+            "steps": [
+                "Print the same deletion letter.",
+                f"Mail it to {postal}.",
+                "Mark it sent on the day it goes in the box.",
+            ],
+            "notes": None,
+        })
+    broker["methods"] = methods
+
+
 def _norm_host(value: str) -> str:
     host = (value or "").strip().lower()
     if "://" in host:
@@ -100,6 +160,8 @@ class Catalog:
             extra = OVERRIDES.get(broker["id"])
             if extra:
                 broker.update(extra)
+                if any(key in extra for key in ("email", "phone", "postal")):
+                    _sync_contacts(broker)
             self.brokers.append(broker)
         self.by_id = {b["id"]: b for b in self.brokers}
         self.clusters = payload.get("clusters") or []

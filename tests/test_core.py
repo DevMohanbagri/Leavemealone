@@ -33,7 +33,12 @@ class CatalogTests(unittest.TestCase):
         self.assertIn("spokeo.com/optout", spokeo["optout_url"])
         walled = catalog.get("truepeoplesearch")
         self.assertTrue(walled["cloudflare"])
-        self.assertEqual(walled["email"], "contact@truepeoplesearch.com")
+        self.assertEqual(walled["email"], "support@truepeoplesearch.com")
+        self.assertEqual(walled["phone"], "888-838-4803")
+        self.assertIn("94120-7775", walled["postal"])
+        email_method = next(method for method in walled["methods"] if method["type"] == "email")
+        self.assertEqual(email_method["email"], "support@truepeoplesearch.com")
+        self.assertNotIn("contact@truepeoplesearch.com", email_method["steps"][1])
         self.assertTrue(catalog.stats()["emailable"] > 100)
         self.assertIsNone(catalog.get("not-a-broker"))
 

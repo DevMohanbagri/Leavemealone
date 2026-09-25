@@ -149,7 +149,7 @@ Do not post that database file, or an export, in a public place. It contains the
 - **`No module named uvicorn`.** The virtual environment is not active, or install did not finish. Run the activate command again, then `python -m pip install -r requirements.txt`.
 - **The browser cannot connect.** The terminal must still be running. Use `http://127.0.0.1:8787`, not a public website address.
 - **Scan says the sites did not answer.** Your network, or the site, blocked the automated check. Open the link from the case desk and record the page yourself. This is normal on some Wi-Fi networks.
-- **The opt-out page says you have been blocked.** That is the site's own security wall, often on people-search sites such as TruePeopleSearch. Do not try to get around it. In the desk, use **Email the letter** and send it from your own mailbox. For TruePeopleSearch that address is contact@truepeoplesearch.com.
+- **The opt-out page says you have been blocked.** That is the site's own security wall, often on people-search sites such as TruePeopleSearch. Do not try to get around it. In the desk, use **Email the letter** and send it from your own mailbox. If no mail app opens, the letter stays on the page so you can paste it into Gmail or Outlook. For TruePeopleSearch the published address is support@truepeoplesearch.com. You can also call 888-838-4803 or mail the same letter to PO Box 7775 PMB 29296, San Francisco, CA 94120-7775.
 - **PowerShell blocks activate.** Use Command Prompt, or run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` once in that window, then activate again.
 
 ## Tests

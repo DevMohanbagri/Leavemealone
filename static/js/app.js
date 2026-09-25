@@ -63,6 +63,7 @@ const state = {
   letter: null,
   letterBroker: "",
   letterKind: "deletion",
+  mailDraft: null,
   batches: null,
   help: false,
   redact: false,
@@ -216,6 +217,29 @@ function wallNote(b) {
   return `<p class="banner warn"><strong>Their security wall may stop this page.</strong> If you see “Sorry, you have been blocked,” that is the site, not this desk. LeaveMeAlone will not try to get around it.${mail}</p>`;
 }
 
+function requestMethod(b) {
+  const methods = (b && b.methods) || [];
+  if (walled(b)) {
+    return methods.find((m) => m.type === "email") || methods.find((m) => m.type === "web_form" && m.url) || methods[0];
+  }
+  return methods.find((m) => m.type === "web_form" && m.url) || methods[0];
+}
+
+function fallbackLine(b) {
+  if (!b || (!b.phone && !b.postal)) return "";
+  const bits = [];
+  if (b.phone) bits.push(`call <span class="pii">${esc(b.phone)}</span>`);
+  if (b.postal) bits.push(`mail the same letter to <span class="pii">${esc(b.postal)}</span>`);
+  return `<p class="tiny muted">If the email bounces, ${bits.join(", or ")}. Do not buy a report to prove the listing is yours.</p>`;
+}
+
+function mailDraftHtml(brokerId) {
+  const draft = state.mailDraft;
+  if (!draft || draft.brokerId !== brokerId) return "";
+  return `<div class="letter pii" style="margin-top:16px"><p class="tiny muted">To: ${esc(draft.email || "privacy office")} · Subject: ${esc(draft.subject)}</p>${esc(draft.body)}</div>
+    <p class="tiny muted">If no mail app opened, paste this into Gmail, Outlook, or whatever you actually use. Then click I sent this.</p>`;
+}
+
 function emailButton(b, primary) {
   if (!b || !b.email || !b.id) return "";
   return `<button type="button" class="${primary ? "" : "ghost"}" data-act="email-letter" data-broker="${esc(b.id)}" data-email="${esc(b.email)}">Email the letter</button>`;
@@ -233,10 +257,13 @@ function openMail(email, subject, body) {
 async function emailLetter(brokerId, email) {
   const params = new URLSearchParams({ kind: "deletion", broker_id: brokerId || "" });
   const letter = await api(`/api/profiles/${state.profileId}/letters?${params}`);
-  await copyText(`${letter.subject}\n\n${letter.body}`, "Letter copied. Paste it into the mail window, then send it yourself.");
-  if (email) {
-    openMail(email, letter.subject, "The full deletion request is on my clipboard. Paste it below this line, then send.\n\n");
+  const to = email || letter.to || "";
+  state.mailDraft = { brokerId, email: to, subject: letter.subject, body: letter.body };
+  await copyText(`${letter.subject}\n\n${letter.body}`, "Letter copied. If no mail app opened, it is also on this page.");
+  if (to) {
+    openMail(to, letter.subject, "The full deletion request is on my clipboard. Paste it below this line, then send.\n\n");
   }
+  render();
 }
 
 function go(view) {
@@ -271,6 +298,7 @@ function filteredRemovals() {
     if (filter === "sent") return row.status === "submitted";
     if (filter === "overdue") return row.overdue;
     if (filter === "people") return row.category === "people-search" && !["confirmed", "skipped"].includes(row.status);
+    if (filter === "blocked") return (row.cloudflare || row.captcha) && !["confirmed", "skipped"].includes(row.status);
     if (filter === "priority") return row.priority === 1 && !["confirmed", "skipped"].includes(row.status);
     return row.status !== "skipped";
   }).sort(sortRemoval);
@@ -360,7 +388,7 @@ function helpOverlay() {
 
 function drawer() {
   const b = state.drawer;
-  const method = (b.methods || []).find((m) => m.type === "web_form" && m.url) || (b.methods || [])[0];
+  const method = requestMethod(b);
   const steps = (method && method.steps) || [];
   return `<div class="drawer-back" data-act="close-drawer"><aside class="drawer" data-stop="1">
     <p class="kicker">${esc(cat(b.category))} · ${esc(b.domain || "")}</p>
@@ -372,12 +400,16 @@ function drawer() {
     ${steps.length ? `<ol class="steps">${steps.map((s) => `<li>${esc(s)}</li>`).join("")}</ol>` : ""}
     <div class="row">
       ${emailButton(b, walled(b) || !b.optout_url)}
+      ${b.email ? `<button type="button" class="ghost" data-act="copy-text" data-text="${esc(b.email)}">Copy address</button>` : ""}
+      ${b.phone ? `<a class="btn ghost" href="tel:${esc(String(b.phone).replace(/[^\d+]/g, ""))}">Call ${esc(b.phone)}</a>` : ""}
       ${b.optout_url ? `<button type="button" class="${walled(b) ? "ghost" : ""}" data-act="open" data-url="${esc(b.optout_url)}">${walled(b) ? "Open opt-out anyway" : "Open opt-out"}</button>` : ""}
       ${b.filled_search_url ? `<button type="button" class="ghost" data-act="open" data-url="${esc(b.filled_search_url)}">Open search</button>` : ""}
       <button type="button" class="ghost" data-act="close-drawer">Close</button>
     </div>
+    ${fallbackLine(b)}
+    ${mailDraftHtml(b.id)}
     ${b.email ? `<p class="tiny muted">Privacy email: <span class="pii">${esc(b.email)}</span></p>` : ""}
-    ${b.postal ? `<p class="tiny muted">Post: ${esc(b.postal)}</p>` : ""}
+    ${b.postal ? `<p class="tiny muted">Post: <span class="pii">${esc(b.postal)}</span></p>` : ""}
     <p class="tiny faint">Steps last noted ${esc(b.last_verified || "in the registry")}. If the page moved, use the privacy link in the footer.</p>
   </aside></div>`;
 }
@@ -680,6 +712,7 @@ function caseMode() {
     ["open", "Not sent"],
     ["priority", "Upstream"],
     ["people", "People search"],
+    ["blocked", "Blocked pages"],
     ["overdue", "Overdue"],
     ["sent", "Sent"],
     ["all", "All"],
@@ -691,7 +724,7 @@ function caseMode() {
       <div class="filters">${filters.map(filterButton).join("")}</div>`;
   }
   const detail = state.caseDetail && state.caseDetail.id === item.broker_id ? state.caseDetail : null;
-  const method = detail && ((detail.methods || []).find((m) => m.type === "web_form" && m.url) || detail.methods[0]);
+  const method = detail && requestMethod(detail);
   const steps = (method && method.steps) || [];
   const cluster = detail && detail.cluster;
   const seen = sightingFor(item.broker_id);
@@ -710,6 +743,7 @@ function caseMode() {
         <label><span class="tiny muted">Listing URL, if you copied one</span><input id="listing-url" value="${esc(item.listing_url || (seen && seen.url) || "")}"></label>
         <div class="row" style="margin-top:14px">
           ${emailButton(detail || item, walled(detail || item) || !item.optout_url)}
+          ${(detail || item).email ? `<button type="button" class="ghost" data-act="copy-text" data-text="${esc((detail || item).email)}">Copy address</button>` : ""}
           ${detail && detail.filled_search_url ? `<button type="button" class="ghost" data-act="open" data-url="${esc(detail.filled_search_url)}">Open search</button>` : ""}
           ${item.optout_url ? `<button type="button" class="${walled(detail || item) ? "ghost" : ""}" data-act="open" data-url="${esc(item.optout_url)}">${walled(detail || item) ? "Open opt-out anyway" : "Open opt-out"}</button>` : ""}
           <button type="button" class="ghost" data-act="copy-details">Copy my details</button>
@@ -722,6 +756,8 @@ function caseMode() {
           ${item.overdue ? `<button type="button" class="ghost" data-act="copy-letter" data-broker="${esc(item.broker_id)}" data-kind="followup">Copy follow-up</button>` : ""}
           ${cluster && cluster.members.length > 1 ? `<button type="button" class="ghost" data-act="cluster" data-ids="${esc(cluster.members.map((m) => m.id).join(","))}">Mark the network sent</button>` : ""}
         </div>
+        ${fallbackLine(detail || item)}
+        ${mailDraftHtml(item.broker_id)}
         ${item.deadline_at ? `<p class="tiny muted">Deadline ${esc(item.deadline_at)} · ${esc(daysLabel(item.deadline_at))}</p>` : ""}
       </article>
       <aside class="queue">
@@ -1145,6 +1181,8 @@ async function onClick(event) {
       await copyText(detailsText(profile()));
     } else if (act === "email-letter") {
       await emailLetter(btn.dataset.broker || "", btn.dataset.email || "");
+    } else if (act === "copy-text") {
+      await copyText(btn.dataset.text || "");
     } else if (act === "copy-letter") {
       const params = new URLSearchParams({
         kind: btn.dataset.kind || "deletion",
@@ -1179,6 +1217,7 @@ async function onClick(event) {
     } else if (act === "case") {
       state.caseIndex = Number(btn.dataset.index);
       state.caseDetail = null;
+      state.mailDraft = null;
       render();
     } else if (act === "pull-filter") {
       state.pullFilter = btn.dataset.filter;
@@ -1341,10 +1380,12 @@ function onKey(event) {
     if (event.key === "j" || event.key === "ArrowDown") {
       state.caseIndex += 1;
       state.caseDetail = null;
+      state.mailDraft = null;
       render();
     } else if (event.key === "k" || event.key === "ArrowUp") {
       state.caseIndex = Math.max(0, state.caseIndex - 1);
       state.caseDetail = null;
+      state.mailDraft = null;
       render();
     } else if (event.key === "o") {
       const item = currentCase();

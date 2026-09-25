@@ -195,6 +195,8 @@ def decorate_removal(row: dict) -> dict:
     row["relisting"] = broker.get("relisting") if broker else "medium"
     row["optout_url"] = broker.get("optout_url") if broker else None
     row["email"] = broker.get("email") if broker else None
+    row["phone"] = broker.get("phone") if broker else None
+    row["postal"] = broker.get("postal") if broker else None
     row["cloudflare"] = bool(broker.get("cloudflare")) if broker else False
     row["captcha"] = bool(broker.get("captcha")) if broker else False
     row["domain"] = broker.get("domain") if broker else ""
