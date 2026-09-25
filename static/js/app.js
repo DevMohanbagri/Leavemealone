@@ -181,7 +181,7 @@ function safeUrl(url) {
   return /^https?:\/\//i.test(url || "") ? url : "";
 }
 
-async function copyText(text) {
+async function copyText(text, message) {
   try {
     await navigator.clipboard.writeText(text);
   } catch (err) {
@@ -192,7 +192,7 @@ async function copyText(text) {
     document.execCommand("copy");
     area.remove();
   }
-  toast("Copied.");
+  toast(message || "Copied.");
 }
 
 function openUrl(url) {
@@ -202,6 +202,41 @@ function openUrl(url) {
     return;
   }
   window.open(safe, "_blank", "noopener");
+}
+
+function walled(b) {
+  return !!(b && (b.cloudflare || b.captcha));
+}
+
+function wallNote(b) {
+  if (!walled(b)) return "";
+  const mail = b.email
+    ? ` Send the letter to <span class="pii">${esc(b.email)}</span> from your own mailbox. That request still counts.`
+    : " Copy the letter and send it to the privacy address in the site footer.";
+  return `<p class="banner warn"><strong>Their security wall may stop this page.</strong> If you see “Sorry, you have been blocked,” that is the site, not this desk. LeaveMeAlone will not try to get around it.${mail}</p>`;
+}
+
+function emailButton(b, primary) {
+  if (!b || !b.email || !b.id) return "";
+  return `<button type="button" class="${primary ? "" : "ghost"}" data-act="email-letter" data-broker="${esc(b.id)}" data-email="${esc(b.email)}">Email the letter</button>`;
+}
+
+function openMail(email, subject, body) {
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email || "")) return;
+  const link = document.createElement("a");
+  link.href = `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
+async function emailLetter(brokerId, email) {
+  const params = new URLSearchParams({ kind: "deletion", broker_id: brokerId || "" });
+  const letter = await api(`/api/profiles/${state.profileId}/letters?${params}`);
+  await copyText(`${letter.subject}\n\n${letter.body}`, "Letter copied. Paste it into the mail window, then send it yourself.");
+  if (email) {
+    openMail(email, letter.subject, "The full deletion request is on my clipboard. Paste it below this line, then send.\n\n");
+  }
 }
 
 function go(view) {
@@ -317,7 +352,7 @@ function helpOverlay() {
   return `<div class="help-back" data-act="close-help"><div class="help" data-stop="1">
     <p class="kicker">Shortcuts</p>
     <h2>While you pull</h2>
-    <p>J and K move the case. O opens the opt-out. S logs it as sent. G then D, S, P, W, B, or L jumps sections. ? closes this.</p>
+    <p>J and K move the case. O opens the opt-out, or your mail if that page is behind a block wall. S logs it as sent. G then D, S, P, W, B, or L jumps sections. ? closes this.</p>
     <p class="muted small">Nothing here emails a broker for you. Copy, then send from your own mailbox.</p>
     <button type="button" class="ghost" data-act="close-help">Close</button>
   </div></div>`;
@@ -333,13 +368,15 @@ function drawer() {
     <p>${esc(b.why || b.notes || "Use the official opt-out. Do not buy a report to see yourself.")}</p>
     <p class="tiny muted">${esc((b.data_types || []).join(" · "))} ${b.relisting ? `· ${esc(RELIST[b.relisting] || "")}` : ""}</p>
     ${b.erasable === "partial" ? `<p class="banner warn">Some of this is a public record. The broker can suppress their copy. A court or county recorder may not.</p>` : ""}
+    ${wallNote(b)}
     ${steps.length ? `<ol class="steps">${steps.map((s) => `<li>${esc(s)}</li>`).join("")}</ol>` : ""}
     <div class="row">
-      ${b.optout_url ? `<button type="button" data-act="open" data-url="${esc(b.optout_url)}">Open opt-out</button>` : ""}
+      ${emailButton(b, walled(b) || !b.optout_url)}
+      ${b.optout_url ? `<button type="button" class="${walled(b) ? "ghost" : ""}" data-act="open" data-url="${esc(b.optout_url)}">${walled(b) ? "Open opt-out anyway" : "Open opt-out"}</button>` : ""}
       ${b.filled_search_url ? `<button type="button" class="ghost" data-act="open" data-url="${esc(b.filled_search_url)}">Open search</button>` : ""}
       <button type="button" class="ghost" data-act="close-drawer">Close</button>
     </div>
-    ${b.email ? `<p class="tiny muted">Privacy email: ${esc(b.email)}</p>` : ""}
+    ${b.email ? `<p class="tiny muted">Privacy email: <span class="pii">${esc(b.email)}</span></p>` : ""}
     ${b.postal ? `<p class="tiny muted">Post: ${esc(b.postal)}</p>` : ""}
     <p class="tiny faint">Steps last noted ${esc(b.last_verified || "in the registry")}. If the page moved, use the privacy link in the footer.</p>
   </aside></div>`;
@@ -668,17 +705,18 @@ function caseMode() {
         ${seen ? `<p class="banner"><strong>On file:</strong> <span class="pii">${esc(seen.snippet || seen.display_status)}</span></p>` : ""}
         ${detail && detail.erasable === "partial" ? `<p class="banner warn">Part of this is a public record. Suppress the broker's copy. Don't expect the county to delete a deed.</p>` : ""}
         ${cluster && cluster.members.length > 1 ? `<p class="banner"><strong>${esc(cluster.name)}.</strong> ${esc(cluster.note)}</p>` : ""}
+        ${wallNote(detail || item)}
         ${steps.length ? `<ol class="steps">${steps.map((s) => `<li>${esc(s)}</li>`).join("")}</ol>` : `<p class="muted small">Open the opt-out, search your name, submit the listing that is you, confirm any email they send.</p>`}
         <label><span class="tiny muted">Listing URL, if you copied one</span><input id="listing-url" value="${esc(item.listing_url || (seen && seen.url) || "")}"></label>
         <div class="row" style="margin-top:14px">
+          ${emailButton(detail || item, walled(detail || item) || !item.optout_url)}
           ${detail && detail.filled_search_url ? `<button type="button" class="ghost" data-act="open" data-url="${esc(detail.filled_search_url)}">Open search</button>` : ""}
-          ${item.optout_url ? `<earch</button>` : ""}
-          ${item.optout_url ? `<button type="button" data-act="open" data-url="${esc(item.optout_url)}">Open opt-out</button>` : ""}
+          ${item.optout_url ? `<button type="button" class="${walled(detail || item) ? "ghost" : ""}" data-act="open" data-url="${esc(item.optout_url)}">${walled(detail || item) ? "Open opt-out anyway" : "Open opt-out"}</button>` : ""}
           <button type="button" class="ghost" data-act="copy-details">Copy my details</button>
           <button type="button" class="ghost" data-act="copy-letter" data-broker="${esc(item.broker_id)}" data-kind="deletion">Copy letter</button>
         </div>
         <div class="row" style="margin-top:10px">
-          <button type="button" data-act="mark" data-id="${item.id}" data-status="submitted">I sent this</button>
+          <button type="button" data-act="mark" data-id="${item.id}" data-status="submitted" data-method="${walled(detail || item) ? "email" : "web_form"}">I sent this</button>
           <button type="button" class="ghost" data-act="mark" data-id="${item.id}" data-status="confirmed">It's gone</button>
           <button type="button" class="ghost" data-act="mark" data-id="${item.id}" data-status="skipped">Skip</button>
           ${item.overdue ? `<button type="button" class="ghost" data-act="copy-letter" data-broker="${esc(item.broker_id)}" data-kind="followup">Copy follow-up</button>` : ""}
@@ -1105,6 +1143,8 @@ async function onClick(event) {
       openUrl(btn.dataset.url);
     } else if (act === "copy-details") {
       await copyText(detailsText(profile()));
+    } else if (act === "email-letter") {
+      await emailLetter(btn.dataset.broker || "", btn.dataset.email || "");
     } else if (act === "copy-letter") {
       const params = new URLSearchParams({
         kind: btn.dataset.kind || "deletion",
@@ -1120,7 +1160,7 @@ async function onClick(event) {
         method: "POST",
         body: {
           status: btn.dataset.status,
-          method: "web_form",
+          method: btn.dataset.method || "web_form",
           listing_url: listing ? listing.value : undefined,
         },
       });
@@ -1308,11 +1348,13 @@ function onKey(event) {
       render();
     } else if (event.key === "o") {
       const item = currentCase();
-      if (item && item.optout_url) openUrl(item.optout_url);
+      if (item && walled(item) && item.email) {
+        emailLetter(item.broker_id, item.email).catch((err) => toast(err.message));
+      } else if (item && item.optout_url) openUrl(item.optout_url);
     } else if (event.key === "s") {
       const item = currentCase();
       if (item) {
-        api(`/api/removals/${item.id}`, { method: "POST", body: { status: "submitted", method: "web_form" } })
+        api(`/api/removals/${item.id}`, { method: "POST", body: { status: "submitted", method: walled(item) ? "email" : "web_form" } })
           .then(refresh)
           .then(() => toast("Logged. The deadline is running."))
           .catch((err) => toast(err.message));

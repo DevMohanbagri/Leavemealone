@@ -31,6 +31,9 @@ class CatalogTests(unittest.TestCase):
         self.assertGreater(len(catalog.brokers), 500)
         spokeo = catalog.get("spokeo")
         self.assertIn("spokeo.com/optout", spokeo["optout_url"])
+        walled = catalog.get("truepeoplesearch")
+        self.assertTrue(walled["cloudflare"])
+        self.assertEqual(walled["email"], "contact@truepeoplesearch.com")
         self.assertTrue(catalog.stats()["emailable"] > 100)
         self.assertIsNone(catalog.get("not-a-broker"))
 
